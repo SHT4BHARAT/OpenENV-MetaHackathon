@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir \
 # Copy source code
 COPY . .
 
-# Expose port 8000 for the FastAPI server
-EXPOSE 8000
+# Expose port 7860 for the FastAPI server (Hugging Face default)
+EXPOSE 7860
 
 # Start the environment server
 CMD ["python", "-m", "server.app"]

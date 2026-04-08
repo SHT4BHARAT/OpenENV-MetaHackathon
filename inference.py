@@ -1,26 +1,43 @@
 import asyncio
 import os
-import textwrap
 import json
-from typing import List, Optional
+import httpx
+from typing import List, Optional, Any
+from pydantic import BaseModel
 from openai import OpenAI
 
 # Assuming these are imported from our local package
-from models import CloudAction, AuditAction, FixSecurityGroupAction, EnableS3EncryptionAction, SubmitReportAction
-# In a real OpenEnv setup, the Env class is often auto-generated or provided by openenv-core
-# For this baseline, we'll use a mock client that would normally wrap the FastAPI server
-# However, to be fully compliant with the 'from_docker_image' example:
-from openenv.core.http_env_client import HTTPEnvClient
+from models import CloudAction, AuditAction, FixSecurityGroupAction, EnableS3EncryptionAction, SubmitReportAction, CloudObservation
 
-class CloudAuditClient(HTTPEnvClient):
-    """Client-side wrapper for CloudAuditEnv."""
-    async def reset(self):
-        return await super().reset()
+class StepResult(BaseModel):
+    observation: CloudObservation
+    reward: float
+    done: bool
+    info: dict
+
+class AsyncCloudClient:
+    """Library-agnostic client for CloudAuditEnv using httpx."""
+    def __init__(self, base_url: str):
+        self.base_url = base_url.rstrip("/")
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def reset(self) -> StepResult:
+        response = await self.client.post(f"{self.base_url}/reset", json={})
+        response.raise_for_status()
+        data = response.json()
+        return StepResult(**data)
     
-    async def step(self, action: CloudAction):
-        return await super().step(action.dict())
+    async def step(self, action: CloudAction) -> StepResult:
+        # Pydantic Union types serialize better with model_dump in v2
+        action_dict = action.model_dump() if hasattr(action, "model_dump") else action.dict()
+        response = await self.client.post(f"{self.base_url}/step", json=action_dict)
+        response.raise_for_status()
+        data = response.json()
+        return StepResult(**data)
 
-IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+    async def close(self):
+        await self.client.aclose()
+
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
@@ -28,7 +45,7 @@ MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 TASK_NAME = os.getenv("TASK_NAME", "easy_audit")
 BENCHMARK = "cloud_audit_env"
 MAX_STEPS = 10
-TEMPERATURE = 0.0 # Audit tasks usually require precision
+TEMPERATURE = 0.0
 MAX_TOKENS = 512
 
 SUCCESS_SCORE_THRESHOLD = 0.1
@@ -63,12 +80,15 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    if not API_KEY:
+        print("[ERROR] HF_TOKEN or OPENAI_API_KEY environment variable is not set.")
+        return
+
+    openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
-    # In the actual evaluation, this would point to the Docker container
-    # For baseline, we assume the environment is running at localhost:8000
-    env_url = f"http://localhost:8000"
-    env = CloudAuditClient(base_url=env_url)
+    # The Docker container is exposing port 8000
+    env_url = os.getenv("ENV_URL", "http://localhost:8000")
+    env = AsyncCloudClient(base_url=env_url)
 
     rewards: List[float] = []
     steps_taken = 0
@@ -84,10 +104,13 @@ async def main() -> None:
             if result.done:
                 break
             
-            # Simple agent logic: call LLM with observation
-            obs_json = json.dumps(result.observation.dict())
+            # Agent logic: call LLM with observation
+            # Filter observation to avoid passing reward/done back to the agent if not needed
+            obs_dict = result.observation.model_dump() if hasattr(result.observation, "model_dump") else result.observation.dict()
+            obs_json = json.dumps(obs_dict)
+            
             try:
-                completion = client.chat.completions.create(
+                completion = openai_client.chat.completions.create(
                     model=MODEL_NAME,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
@@ -97,17 +120,19 @@ async def main() -> None:
                     max_tokens=MAX_TOKENS,
                     response_format={ "type": "json_object" }
                 )
-                action_data = json.loads(completion.choices[0].message.content)
+                action_content = completion.choices[0].message.content
+                action_data = json.loads(action_content)
                 action_obj = CloudAction(**action_data)
                 action_str = json.dumps(action_data)
             except Exception as e:
-                action_obj = CloudAction(action=AuditAction()) # Fallback
+                # Basic fallback to audit if LLM fails
+                action_obj = CloudAction(action=AuditAction())
                 action_str = "audit-fallback"
-                print(f"[DEBUG] Error generating action: {e}")
+                print(f"[DEBUG] Action generation error: {e}")
 
             result = await env.step(action_obj)
             
-            reward = result.reward or 0.0
+            reward = result.reward
             done = result.done
             rewards.append(reward)
             steps_taken = step
@@ -117,10 +142,7 @@ async def main() -> None:
             if done:
                 break
         
-        # Calculate final score (normalized to [0, 1])
-        # Max reward per step is variable, but graders return a final 1.0 for success.
-        # We can use the last reward or a cumulative normalized score.
-        score = sum(rewards) # Simplified for baseline
+        score = sum(rewards)
         score = min(max(score, 0.0), 1.0)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
@@ -128,6 +150,7 @@ async def main() -> None:
         print(f"[DEBUG] Runtime error: {e}")
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        await env.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
