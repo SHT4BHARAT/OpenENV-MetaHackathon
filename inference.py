@@ -13,7 +13,7 @@ class StepResult(BaseModel):
     observation: CloudObservation
     reward: float
     done: bool
-    info: dict
+    info: dict = {}
 
 class AsyncCloudClient:
     """Library-agnostic client for CloudAuditEnv using httpx."""
@@ -57,12 +57,12 @@ Tasks include:
 2. Enabling encryption on S3 buckets.
 3. Refactoring IAM policies to remove wildcards ('*').
 
-You must output your next action as a JSON object matching the expected schema.
+You must output your next action as a JSON object.
 Example actions:
-- {"action": {"action_type": "audit"}}
-- {"action": {"sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}}
-- {"action": {"bucket_name": "my-bucket"}}
-- {"action": {"findings": ["Fixed SG", "Encrypted Bucket"]}}
+- {"action_type": "audit"}
+- {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}
+- {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}
+- {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}
 
 Always focus on the current task and progress towards 100% compliance.
 """
@@ -86,8 +86,8 @@ async def main() -> None:
 
     openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
-    # The Docker container is exposing port 8000
-    env_url = os.getenv("ENV_URL", "http://localhost:8000")
+    # The Docker container is exposing port 7860 (Hugging Face default)
+    env_url = os.getenv("ENV_URL", "http://localhost:7860")
     env = AsyncCloudClient(base_url=env_url)
 
     rewards: List[float] = []
@@ -122,11 +122,13 @@ async def main() -> None:
                 )
                 action_content = completion.choices[0].message.content
                 action_data = json.loads(action_content)
-                action_obj = CloudAction(**action_data)
+                # Parse flat action directly
+                from pydantic import TypeAdapter
+                action_obj = TypeAdapter(CloudAction).validate_python(action_data)
                 action_str = json.dumps(action_data)
             except Exception as e:
                 # Basic fallback to audit if LLM fails
-                action_obj = CloudAction(action=AuditAction())
+                action_obj = AuditAction()
                 action_str = "audit-fallback"
                 print(f"[DEBUG] Action generation error: {e}")
 

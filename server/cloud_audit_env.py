@@ -43,9 +43,8 @@ class CloudAuditEnv(Environment):
         self.initial_vulns = self._count_vulnerabilities()
         return self._get_observation("Environment reset. Audit pending.", reward=0.0, done=False)
 
-    def step(self, action_wrapper: CloudAction) -> Tuple[CloudObservation, float, bool, dict]:
+    def step(self, action: CloudAction) -> Tuple[CloudObservation, float, bool, dict]:
         self.step_count += 1
-        action = action_wrapper.action
         reward = 0.0
         message = ""
 

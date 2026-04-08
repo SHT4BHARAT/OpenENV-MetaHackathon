@@ -1,5 +1,5 @@
-from typing import List, Optional, Union, Dict
-from pydantic import BaseModel, Field
+from typing import List, Optional, Union, Dict, Annotated, Literal
+from pydantic import BaseModel, Field, Tag
 
 # --- Observation Models ---
 
@@ -34,35 +34,41 @@ class CloudObservation(BaseModel):
 
 class AuditAction(BaseModel):
     """Scan and list resources."""
-    action_type: str = "audit"
+    action_type: Literal["audit"] = "audit"
 
 class FixSecurityGroupAction(BaseModel):
     """Remove a specific CIDR rule from a security group."""
+    action_type: Literal["fix_sg"] = "fix_sg"
     sg_id: str
     port: int
     cidr_to_remove: str
 
 class EnableS3EncryptionAction(BaseModel):
     """Enable server-side encryption for an S3 bucket."""
+    action_type: Literal["enable_s3_enc"] = "enable_s3_enc"
     bucket_name: str
 
 class UpdateIAMPolicyAction(BaseModel):
     """Update an IAM policy with a new document."""
+    action_type: Literal["update_iam"] = "update_iam"
     policy_id: str
     new_document: str
 
 class SubmitReportAction(BaseModel):
     """Submit the audit results and end the session."""
+    action_type: Literal["submit"] = "submit"
     findings: List[str]
 
-class CloudAction(BaseModel):
-    action: Union[
-        AuditAction, 
-        FixSecurityGroupAction, 
-        EnableS3EncryptionAction, 
-        UpdateIAMPolicyAction, 
-        SubmitReportAction
-    ]
+CloudAction = Annotated[
+    Union[
+        Annotated[AuditAction, Tag("audit")],
+        Annotated[FixSecurityGroupAction, Tag("fix_sg")],
+        Annotated[EnableS3EncryptionAction, Tag("enable_s3_enc")],
+        Annotated[UpdateIAMPolicyAction, Tag("update_iam")],
+        Annotated[SubmitReportAction, Tag("submit")]
+    ],
+    Field(discriminator="action_type")
+]
 
 # --- State Model ---
 
