@@ -3,9 +3,7 @@ from typing import List, Tuple
 from openenv.core.env_server import Environment
 from models import (
     CloudAction, CloudObservation, CloudState, 
-    SecurityGroup, SecurityGroupRule, S3Bucket, IAMPolicy,
-    AuditAction, FixSecurityGroupAction, EnableS3EncryptionAction, 
-    UpdateIAMPolicyAction, SubmitReportAction
+    SecurityGroup, SecurityGroupRule, S3Bucket, IAMPolicy
 )
 
 class CloudAuditEnv(Environment):
@@ -43,9 +41,8 @@ class CloudAuditEnv(Environment):
         self.initial_vulns = self._count_vulnerabilities()
         return self._get_observation("Environment reset. Audit pending.", reward=0.0, done=False)
 
-    def step(self, action_wrapper: CloudAction) -> Tuple[CloudObservation, float, bool, dict]:
+    def step(self, action: CloudAction) -> CloudObservation:
         self.step_count += 1
-        action = action_wrapper.action
         reward = 0.0
         message = ""
 
@@ -53,63 +50,67 @@ class CloudAuditEnv(Environment):
             self.done = True
             message = "Max steps reached."
 
-        if isinstance(action, AuditAction):
-            message = f"Audit complete. Found {self._count_vulnerabilities()} issues."
-            reward = 0.05 # Small reward for auditing
+        at = action.action_type
         
-        elif isinstance(action, FixSecurityGroupAction):
+        if at == "audit":
+            message = f"Audit complete. Found {self._count_vulnerabilities()} issues."
+            reward = 0.05
+        
+        elif at == "fix_sg":
             found = False
-            for sg in self.sgs:
-                if sg.id == action.sg_id:
-                    original_len = len(sg.ingress_rules)
-                    sg.ingress_rules = [r for r in sg.ingress_rules if not (r.port == action.port and r.cidr == action.cidr_to_remove)]
-                    if len(sg.ingress_rules) < original_len:
-                        reward = 0.2
-                        self.remediated_count += 1
-                        message = f"Fixed Security Group {action.sg_id}."
-                        found = True
-                    break
+            if action.sg_id and action.port is not None and action.cidr_to_remove:
+                for sg in self.sgs:
+                    if sg.id == action.sg_id:
+                        original_len = len(sg.ingress_rules)
+                        sg.ingress_rules = [r for r in sg.ingress_rules if not (r.port == action.port and r.cidr == action.cidr_to_remove)]
+                        if len(sg.ingress_rules) < original_len:
+                            reward = 0.2
+                            self.remediated_count += 1
+                            message = f"Fixed Security Group {action.sg_id}."
+                            found = True
+                        break
             if not found:
                 message = f"Security Group {action.sg_id} or rule not found."
 
-        elif isinstance(action, EnableS3EncryptionAction):
-            for bucket in self.buckets:
-                if bucket.name == action.bucket_name:
-                    if not bucket.encrypted:
-                        bucket.encrypted = True
-                        reward = 0.2
-                        self.remediated_count += 1
-                        message = f"Enabled encryption for bucket {action.bucket_name}."
-                    else:
-                        message = f"Bucket {action.bucket_name} already encrypted."
-                    break
-            else:
-                message = f"Bucket {action.bucket_name} not found."
+        elif at == "enable_s3_enc":
+            if action.bucket_name:
+                for bucket in self.buckets:
+                    if bucket.name == action.bucket_name:
+                        if not bucket.encrypted:
+                            bucket.encrypted = True
+                            reward = 0.2
+                            self.remediated_count += 1
+                            message = f"Enabled encryption for bucket {action.bucket_name}."
+                        else:
+                            message = f"Bucket {action.bucket_name} already encrypted."
+                        break
+                else:
+                    message = f"Bucket {action.bucket_name} not found."
 
-        elif isinstance(action, UpdateIAMPolicyAction):
-            # Simple check for least privilege (removing "*" action)
-            for policy in self.policies:
-                if policy.id == action.policy_id:
-                    if "*" not in action.new_document:
-                        policy.document = action.new_document
-                        reward = 0.5 # High reward for hard task
-                        self.remediated_count += 1
-                        message = "IAM Policy updated to least privilege."
-                    else:
-                        message = "New policy still too broad."
-                    break
+        elif at == "update_iam":
+            if action.policy_id and action.new_document:
+                for policy in self.policies:
+                    if policy.id == action.policy_id:
+                        if "*" not in action.new_document:
+                            policy.document = action.new_document
+                            reward = 0.5
+                            self.remediated_count += 1
+                            message = "IAM Policy updated to least privilege."
+                        else:
+                            message = "New policy still too broad."
+                        break
 
-        elif isinstance(action, SubmitReportAction):
+        elif at == "submit":
             self.done = True
             final_vulns = self._count_vulnerabilities()
             if final_vulns == 0:
-                reward = 1.0 # Bonus for perfect run
+                reward = 1.0
                 message = "All vulnerabilities remediated. Perfect audit."
             else:
                 message = f"Report submitted. {final_vulns} vulnerabilities still remaining."
 
         obs = self._get_observation(message, reward=reward, done=self.done)
-        return obs, reward, self.done, {}
+        return obs
 
     @property
     def state(self) -> CloudState:

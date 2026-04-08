@@ -6,13 +6,13 @@ from typing import List, Optional, Any
 from pydantic import BaseModel
 from openai import OpenAI
 
-# Assuming these are imported from our local package
-from models import CloudAction, AuditAction, FixSecurityGroupAction, EnableS3EncryptionAction, SubmitReportAction, CloudObservation
+# Unified model imports
+from models import CloudAction, CloudObservation
 
 class StepResult(BaseModel):
     observation: CloudObservation
-    reward: float
-    done: bool
+    reward: Optional[float] = 0.0
+    done: bool = False
     info: dict = {}
 
 class AsyncCloudClient:
@@ -28,9 +28,9 @@ class AsyncCloudClient:
         return StepResult(**data)
     
     async def step(self, action: CloudAction) -> StepResult:
-        # Pydantic Union types serialize better with model_dump in v2
-        action_dict = action.model_dump() if hasattr(action, "model_dump") else action.dict()
-        response = await self.client.post(f"{self.base_url}/step", json=action_dict)
+        # The framework expects the action to be wrapped in an "action" key
+        payload = {"action": action.model_dump()}
+        response = await self.client.post(f"{self.base_url}/step", json=payload)
         response.raise_for_status()
         data = response.json()
         return StepResult(**data)
@@ -38,7 +38,7 @@ class AsyncCloudClient:
     async def close(self):
         await self.client.aclose()
 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
@@ -57,12 +57,13 @@ Tasks include:
 2. Enabling encryption on S3 buckets.
 3. Refactoring IAM policies to remove wildcards ('*').
 
-You must output your next action as a JSON object matching the expected schema.
+You must output your next action as a FLAT JSON object.
 Example actions:
-- {"action": {"action_type": "audit"}}
-- {"action": {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}}
-- {"action": {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}}
-- {"action": {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}}
+- {"action_type": "audit"}
+- {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}
+- {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}
+- {"action_type": "update_iam", "policy_id": "p-1", "new_document": "NEW_DOC_JSON"}
+- {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}
 
 Always focus on the current task and progress towards 100% compliance.
 """
@@ -81,13 +82,13 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 async def main() -> None:
     if not API_KEY:
-        print("[ERROR] HF_TOKEN or OPENAI_API_KEY environment variable is not set.")
+        print("[ERROR] HF_TOKEN environment variable is not set.")
         return
 
     openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
-    # The Docker container is exposing port 7860 (Hugging Face default)
-    env_url = os.getenv("ENV_URL", "http://localhost:7860")
+    # Use 127.0.0.1 explicitly to avoid IPv6 issues on some systems
+    env_url = os.getenv("ENV_URL", "http://127.0.0.1:7860")
     env = AsyncCloudClient(base_url=env_url)
 
     rewards: List[float] = []
@@ -104,9 +105,7 @@ async def main() -> None:
             if result.done:
                 break
             
-            # Agent logic: call LLM with observation
-            # Filter observation to avoid passing reward/done back to the agent if not needed
-            obs_dict = result.observation.model_dump() if hasattr(result.observation, "model_dump") else result.observation.dict()
+            obs_dict = result.observation.model_dump()
             obs_json = json.dumps(obs_dict)
             
             try:
@@ -122,12 +121,12 @@ async def main() -> None:
                 )
                 action_content = completion.choices[0].message.content
                 action_data = json.loads(action_content)
-                # Parse wrapped action
+                # Parse flat action
                 action_obj = CloudAction(**action_data)
                 action_str = json.dumps(action_data)
             except Exception as e:
                 # Basic fallback to audit if LLM fails
-                action_obj = CloudAction(action=AuditAction())
+                action_obj = CloudAction(action_type="audit")
                 action_str = "audit-fallback"
                 print(f"[DEBUG] Action generation error: {e}")
 

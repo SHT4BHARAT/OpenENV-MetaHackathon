@@ -1,58 +1,72 @@
-# CloudAuditEnv: Cloud Infrastructure Security Audit
+# OpenENV MetaHackathon: CloudAuditEnv 🚀
 
-CloudAuditEnv is a production-ready OpenEnv environment that simulates a Cloud Security Engineer's workflow. It involves auditing a virtualized cloud environment for security vulnerabilities and performing remediation actions.
+Welcome to **CloudAuditEnv**, a dynamic cloud security assessment environment built strictly utilizing the [OpenEnv Framework](https://github.com/meta-pytorch/OpenEnv). This environment challenges Large Language Models to autonomously navigate a mock cloud infrastructure, pinpointing and remediating specific security vulnerabilities.
 
-## Real-World Task
-The environment models common security baseline checks for AWS-like infrastructures, including:
-- **Network Security**: Identification of wide-open SSH ports (0.0.0.0/0).
-- **Data Protection**: Enabling server-side encryption for S3 buckets.
-- **Identity & Access Management (IAM)**: Refactoring wildcard policies (`*`) to follow least-privilege principles.
+This project was developed for the **OpenENV MetaHackathon**.
 
-## Action Space
-The agent can interact with the environment using the following actions (defined in `models.py`):
-- `AuditAction`: Scans all resources and returns their current configuration.
-- `FixSecurityGroupAction(sg_id, port, cidr_to_remove)`: Removes a vulnerable rule.
-- `EnableS3EncryptionAction(bucket_name)`: Enables encryption on a non-compliant bucket.
-- `UpdateIAMPolicyAction(policy_id, new_document)`: Replaces a policy document with a secure version.
-- `SubmitReportAction(findings)`: Ends the episode and submits results.
+## 🛡️ The Mission
 
-## Observation Space
-The `CloudObservation` model provides:
-- A list of `SecurityGroup` objects.
-- A list of `S3Bucket` objects.
-- A list of `IAMPolicy` objects.
-- A descriptive message from the last action.
+The agent takes on the persona of a Cloud Security Engineer. The environment initializes with several mock cloud resources structured logically:
 
-## Tasks & Difficulties
-1. **easy_audit**: Focuses on network security (Security Groups).
-2. **medium_remediation**: Combines network security with data protection (S3).
-3. **hard_iam_refactor**: Requires semantic reasoning over IAM policy JSONs and log-based refactoring.
+1.  **Security Groups**: The agent must audit ingress rules and surgically remove overly permissive CIDR blocks (e.g., `0.0.0.0/0` on port `22`).
+2.  **S3 Buckets**: Unencrypted data at rest is a liability. The agent must enforce server-side encryption across exposed buckets.
+3.  **IAM Policies**: The principle of least privilege must be applied, updating JSON policy documents to strip wildcard (`*`) access.
 
-## Setup Instructions
+The agent interacts iteratively until a score of `1.0` (all vulnerabilities explicitly remediated) is achieved.
 
-### Local Development
-1. Install dependencies:
-   ```bash
-   pip install openenv-core fastapi uvicorn pydantic openai
-   ```
-2. Start the environment server:
-   ```bash
-   python -m server.app
-   ```
-3. Run the baseline evaluation:
-   ```bash
-   export HF_TOKEN="your_key"
-   export API_BASE_URL="llm_endpoint"
-   python inference.py
-   ```
+## 🏗️ Technical Architecture
 
-### Docker
-```bash
-docker build -t cloudaudit .
-docker run -p 8000:8000 cloudaudit
+CloudAuditEnv operates fundamentally via a standard containerized HTTP server exposing the core OpenEnv Endpoints: `/reset`, `/step`, `/state`, and `/schema`.
+
+### The Unified Action Model
+To guarantee stable JSON validation across different Pydantic parsing engines, the environment implements a **Flat Unified Model**. The Agent communicates using a flat `JSON` dictionary identified by an `action_type`.
+
+**Expected Agent Output Payload (Examples)**:
+```json
+{"action_type": "audit"}
+{"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}
+{"action_type": "enable_s3_enc", "bucket_name": "customer-data"}
+{"action_type": "update_iam", "policy_id": "p-1", "new_document": "{\"Version\": \"2012-10-17\", \"Statement\": []}"}
+{"action_type": "submit", "findings": ["Remediated SG port 22"]}
 ```
 
-## Reward & Scoring
-- **Partial Progress**: Rewards are granted per successful remediation (+0.2 - +0.5).
-- **Final Score**: The cumulative rewards are normalized in the `[0, 1]` range in `inference.py`.
-- **Success Criteria**: A success is defined as a normalized score >= 0.1.
+---
+
+## 💻 Quick Start & Evaluation
+
+### 1. Run the Environment Server Locally
+
+We strictly utilize Docker to manage dependencies.
+
+```bash
+# Build the Docker image
+docker build -t cloudaudit .
+
+# Run the OpenEnv server on HF Spaces default port (7860)
+docker run -d -p 7860:7860 cloudaudit
+```
+
+### 2. Launch the Baseline Agent
+
+We have provided a robust asynchronous `httpx` baseline agent (`inference.py`) capable of interfacing with Hugging Face's serverless endpoints. 
+
+You will need a Hugging Face Token with "Inference/Write" permissions.
+
+```bash
+# Set your LLM Provider endpoint and Model
+export HF_TOKEN="your_hugging_face_token"
+export API_BASE_URL="https://router.huggingface.co/v1"
+export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
+
+# Start the audit
+python inference.py
+```
+
+### 📜 Expected Agent Output
+```bash
+[START] task=easy_audit env=cloud_audit_env model=Qwen/Qwen2.5-72B-Instruct
+[STEP] step=1 action={"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"} reward=0.20 done=false error=null
+[STEP] step=2 action={"action_type": "enable_s3_enc", "bucket_name": "customer-data"} reward=0.20 done=false error=null
+[STEP] step=3 action={"action_type": "update_iam", ...} reward=0.50 done=false error=null
+[END] success=true steps=4 score=1.000
+```

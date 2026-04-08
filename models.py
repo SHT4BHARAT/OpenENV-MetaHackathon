@@ -1,5 +1,5 @@
-from typing import List, Optional, Union, Dict, Annotated, Literal
-from pydantic import BaseModel, Field, Tag
+from typing import List, Optional, Union, Dict
+from pydantic import BaseModel, Field
 
 # --- Observation Models ---
 
@@ -30,43 +30,29 @@ class CloudObservation(BaseModel):
     done: bool = False
     info: dict = {}
 
-# --- Action Models ---
-
-class AuditAction(BaseModel):
-    """Scan and list resources."""
-    action_type: Literal["audit"] = "audit"
-
-class FixSecurityGroupAction(BaseModel):
-    """Remove a specific CIDR rule from a security group."""
-    action_type: Literal["fix_sg"] = "fix_sg"
-    sg_id: str
-    port: int
-    cidr_to_remove: str
-
-class EnableS3EncryptionAction(BaseModel):
-    """Enable server-side encryption for an S3 bucket."""
-    action_type: Literal["enable_s3_enc"] = "enable_s3_enc"
-    bucket_name: str
-
-class UpdateIAMPolicyAction(BaseModel):
-    """Update an IAM policy with a new document."""
-    action_type: Literal["update_iam"] = "update_iam"
-    policy_id: str
-    new_document: str
-
-class SubmitReportAction(BaseModel):
-    """Submit the audit results and end the session."""
-    action_type: Literal["submit"] = "submit"
-    findings: List[str]
+# --- Unified Action Model ---
 
 class CloudAction(BaseModel):
-    action: Union[
-        AuditAction, 
-        FixSecurityGroupAction, 
-        EnableS3EncryptionAction, 
-        UpdateIAMPolicyAction, 
-        SubmitReportAction
-    ]
+    """
+    Unified action model to resolve union validation issues.
+    All specialized fields are optional.
+    """
+    action_type: str # mandatory: "audit", "fix_sg", "enable_s3_enc", "update_iam", "submit"
+    
+    # fix_sg fields
+    sg_id: Optional[str] = None
+    port: Optional[int] = None
+    cidr_to_remove: Optional[str] = None
+    
+    # enable_s3_enc fields
+    bucket_name: Optional[str] = None
+    
+    # update_iam fields
+    policy_id: Optional[str] = None
+    new_document: Optional[str] = None
+    
+    # submit fields
+    findings: Optional[List[str]] = None
 
 # --- State Model ---
 
