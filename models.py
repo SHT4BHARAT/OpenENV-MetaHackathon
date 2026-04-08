@@ -59,16 +59,14 @@ class SubmitReportAction(BaseModel):
     action_type: Literal["submit"] = "submit"
     findings: List[str]
 
-CloudAction = Annotated[
-    Union[
-        Annotated[AuditAction, Tag("audit")],
-        Annotated[FixSecurityGroupAction, Tag("fix_sg")],
-        Annotated[EnableS3EncryptionAction, Tag("enable_s3_enc")],
-        Annotated[UpdateIAMPolicyAction, Tag("update_iam")],
-        Annotated[SubmitReportAction, Tag("submit")]
-    ],
-    Field(discriminator="action_type")
-]
+class CloudAction(BaseModel):
+    action: Union[
+        AuditAction, 
+        FixSecurityGroupAction, 
+        EnableS3EncryptionAction, 
+        UpdateIAMPolicyAction, 
+        SubmitReportAction
+    ]
 
 # --- State Model ---
 

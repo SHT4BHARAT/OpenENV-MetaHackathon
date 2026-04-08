@@ -57,12 +57,12 @@ Tasks include:
 2. Enabling encryption on S3 buckets.
 3. Refactoring IAM policies to remove wildcards ('*').
 
-You must output your next action as a JSON object.
+You must output your next action as a JSON object matching the expected schema.
 Example actions:
-- {"action_type": "audit"}
-- {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}
-- {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}
-- {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}
+- {"action": {"action_type": "audit"}}
+- {"action": {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}}
+- {"action": {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}}
+- {"action": {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}}
 
 Always focus on the current task and progress towards 100% compliance.
 """
@@ -122,13 +122,12 @@ async def main() -> None:
                 )
                 action_content = completion.choices[0].message.content
                 action_data = json.loads(action_content)
-                # Parse flat action directly
-                from pydantic import TypeAdapter
-                action_obj = TypeAdapter(CloudAction).validate_python(action_data)
+                # Parse wrapped action
+                action_obj = CloudAction(**action_data)
                 action_str = json.dumps(action_data)
             except Exception as e:
                 # Basic fallback to audit if LLM fails
-                action_obj = AuditAction()
+                action_obj = CloudAction(action=AuditAction())
                 action_str = "audit-fallback"
                 print(f"[DEBUG] Action generation error: {e}")
 
