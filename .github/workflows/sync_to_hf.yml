@@ -22,4 +22,9 @@ jobs:
             echo "ERROR: HF_TOKEN is not set in GitHub Secrets!"
             exit 1
           fi
-          git push --force https://sht4bharat:$HF_TOKEN@huggingface.co/spaces/sht4bharat/openenv-cloudaudit main
+          git config --global user.email "sht4bharat@gmail.com"
+          git config --global user.name "SHT4BHARAT"
+          git remote add hf https://huggingface.co/spaces/sht4bharat/openenv-cloudaudit
+          git config --global credential.helper store
+          echo "https://sht4bharat:$HF_TOKEN@huggingface.co" > ~/.git-credentials
+          git push hf main --force
