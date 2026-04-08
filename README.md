@@ -1,4 +1,13 @@
+---
+title: OpenEnv CloudAudit
+emoji: 🛡️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
 # OpenENV MetaHackathon: CloudAuditEnv 🚀
+
 
 Welcome to **CloudAuditEnv**, a dynamic cloud security assessment environment built strictly utilizing the [OpenEnv Framework](https://github.com/meta-pytorch/OpenEnv). This environment challenges Large Language Models to autonomously navigate a mock cloud infrastructure, pinpointing and remediating specific security vulnerabilities.
 
