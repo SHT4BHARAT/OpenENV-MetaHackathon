@@ -1,0 +1,17 @@
+name: cloud_audit_env
+version: 0.1.0
+description: "A Cloud Infrastructure Security Audit environment for OpenEnv. Agents must find and fix vulnerabilities."
+entrypoint: "server/app.py"
+action: "CloudAction"
+observation: "CloudObservation"
+state: "CloudState"
+tasks:
+  - name: "easy_audit"
+    description: "Identify all security groups with port 22 open to the public (0.0.0.0/0)."
+    difficulty: "easy"
+  - name: "medium_remediation"
+    description: "Close all SSH ports opened to public and enable encryption on all S3 buckets."
+    difficulty: "medium"
+  - name: "hard_iam_refactor"
+    description: "Analyze a set of IAM policies and generate a least-privilege policy that satisfies the required access logs."
+    difficulty: "hard"
