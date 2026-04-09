@@ -13,15 +13,16 @@ Welcome to **CloudAuditEnv**, a dynamic cloud security assessment environment bu
 
 This project was developed for the **OpenENV MetaHackathon**.
 
+#### [MODIFY] [README.md](file:///d:/HackaThon/OpenENV%20hackathon/README.md)
 ## 🛡️ The Mission
 
-The agent takes on the persona of a Cloud Security Engineer. The environment initializes with several mock cloud resources structured logically:
+The agent takes on the persona of a Cloud Security Engineer in a high-density mock environment (13 total resources). The mission involves:
 
-1.  **Security Groups**: The agent must audit ingress rules and surgically remove overly permissive CIDR blocks (e.g., `0.0.0.0/0` on port `22`).
-2.  **S3 Buckets**: Unencrypted data at rest is a liability. The agent must enforce server-side encryption across exposed buckets.
-3.  **IAM Policies**: The principle of least privilege must be applied, updating JSON policy documents to strip wildcard (`*`) access.
+1.  **Security Groups (5 total)**: Audit ingress rules across multiple groups. Surgically remove overly permissive SSH (`22`) and RDP (`3389`) CIDR blocks (e.g., `0.0.0.0/0`).
+2.  **S3 Buckets (5 total)**: Enforce server-side encryption across multiple data pools (`customer-logs`, `billing-reports`, etc.).
+3.  **IAM Policies (3 total)**: Apply the principle of least privilege by stripping wildcard (`*`) access from JSON policy documents.
 
-The agent interacts iteratively until a score of `1.0` (all vulnerabilities explicitly remediated) is achieved.
+The environment is designed to be challenging; a score strictly between **0.0 and 1.0** represents realistic agent performance in an complex audit cycle.
 
 ## 🏗️ Technical Architecture
 
@@ -72,10 +73,17 @@ python inference.py
 ```
 
 ### 📜 Expected Agent Output
+The baseline `inference.py` evaluates all 3 tasks. Example output:
 ```bash
 [START] task=easy_audit env=cloud_audit_env model=Qwen/Qwen2.5-72B-Instruct
-[STEP] step=1 action={"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"} reward=0.20 done=false error=null
-[STEP] step=2 action={"action_type": "enable_s3_enc", "bucket_name": "customer-data"} reward=0.20 done=false error=null
-[STEP] step=3 action={"action_type": "update_iam", ...} reward=0.50 done=false error=null
-[END] success=true steps=4 score=1.000
+...
+[END] success=true steps=10 score=0.622 rewards=0.08,0.08,0.08...
+
+[START] task=medium_remediation env=cloud_audit_env model=Qwen/Qwen2.5-72B-Instruct
+...
+[END] success=true steps=10 score=0.711 rewards=0.08,0.08,0.08...
+
+[START] task=hard_iam_refactor env=cloud_audit_env model=Qwen/Qwen2.5-72B-Instruct
+...
+[END] success=true steps=10 score=0.444 rewards=0.08,0.08,0.08...
 ```

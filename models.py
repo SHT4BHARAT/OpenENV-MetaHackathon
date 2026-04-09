@@ -16,6 +16,15 @@ class S3Bucket(BaseModel):
     name: str
     encrypted: bool
 
+class RDSInstance(BaseModel):
+    id: str
+    engine: str
+    encrypted: bool
+
+class EBSVolume(BaseModel):
+    id: str
+    encrypted: bool
+
 class IAMPolicy(BaseModel):
     id: str
     name: str
@@ -24,9 +33,12 @@ class IAMPolicy(BaseModel):
 class CloudObservation(BaseModel):
     security_groups: List[SecurityGroup]
     s3_buckets: List[S3Bucket]
+    rds_instances: List[RDSInstance] = []
+    ebs_volumes: List[EBSVolume] = []
     iam_policies: List[IAMPolicy]
     message: str = "Cloud resources loaded."
     reward: float = 0.0
+    health_score: float = 1.0 # 0.0 to 1.0 (AVAILABILITY)
     done: bool = False
     info: dict = {}
 
@@ -37,18 +49,20 @@ class CloudAction(BaseModel):
     Unified action model to resolve union validation issues.
     All specialized fields are optional.
     """
-    action_type: str # mandatory: "audit", "fix_sg", "enable_s3_enc", "update_iam", "submit"
+    action_type: str # "audit", "fix_sg", "remediate_all_in_sg", "enable_s3_enc", "enable_rds_enc", "enable_ebs_enc", "update_iam", "submit"
     
-    # fix_sg fields
+    # Target identifiers
     sg_id: Optional[str] = None
+    bucket_name: Optional[str] = None
+    policy_id: Optional[str] = None
+    rds_id: Optional[str] = None
+    ebs_id: Optional[str] = None
+    
+    # fix_sg specific fields
     port: Optional[int] = None
     cidr_to_remove: Optional[str] = None
     
-    # enable_s3_enc fields
-    bucket_name: Optional[str] = None
-    
     # update_iam fields
-    policy_id: Optional[str] = None
     new_document: Optional[str] = None
     
     # submit fields
@@ -62,3 +76,6 @@ class CloudState(BaseModel):
     max_steps: int
     remediated_count: int
     total_resources: int
+    vulnerability_manifest: Dict[str, int] = {} # e.g. {"sg_vulns": 4, "s3_vulns": 3}
+    required_iam_perms: Dict[str, str] = {} # policy_id -> required action
+    health_score: float = 1.0

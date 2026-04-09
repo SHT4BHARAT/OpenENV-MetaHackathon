@@ -38,34 +38,40 @@ class AsyncCloudClient:
     async def close(self):
         await self.client.aclose()
 
-API_KEY = os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+# Credentials and configuration (Strictly utilizing validator-injected env vars)
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+API_BASE_URL = os.getenv("API_BASE_URL")
+MODEL_NAME = os.getenv("MODEL_NAME")
 
 TASK_NAME = os.getenv("TASK_NAME", "easy_audit")
 BENCHMARK = "cloud_audit_env"
-MAX_STEPS = 10
+MAX_STEPS = 30
 TEMPERATURE = 0.0
 MAX_TOKENS = 512
 
 SUCCESS_SCORE_THRESHOLD = 0.1
 
 SYSTEM_PROMPT = """
-You are a Cloud Security Engineer. Your goal is to audit and remediate a virtual cloud environment.
-Tasks include:
-1. Finding Security Groups with port 22 open to 0.0.0.0/0.
-2. Enabling encryption on S3 buckets.
-3. Refactoring IAM policies to remove wildcards ('*').
+You are a Cloud Security Engineer. Your goal is to audit and remediate a production cloud environment.
+Environment Details:
+- The environment is PROCEDURALLY GENERATED. Resource IDs will change every session.
+- Resources: Security Groups, S3 Buckets, RDS Instances, EBS Volumes, IAM Policies.
+- CRITICAL: Maintain 'Deployment Health'. If you remove essential rules or permissions, health drops. If health hits 0, the mission fails.
 
-You must output your next action as a FLAT JSON object.
+Tasks include:
+1. Finding Security Groups with port 22 or 3389 open to 0.0.0.0/0.
+2. Enabling encryption on S3, RDS, and EBS resources.
+3. Refactoring IAM policies to remove wide wildcards ('*') while PRESERVING required access mentioned in the policy name/tags.
+
+Performance Rule: Output your next action as a FLAT JSON object. 
 Example actions:
 - {"action_type": "audit"}
-- {"action_type": "fix_sg", "sg_id": "sg-1", "port": 22, "cidr_to_remove": "0.0.0.0/0"}
-- {"action_type": "enable_s3_enc", "bucket_name": "my-bucket"}
-- {"action_type": "update_iam", "policy_id": "p-1", "new_document": "NEW_DOC_JSON"}
-- {"action_type": "submit", "findings": ["Fixed SG", "Encrypted Bucket"]}
+- {"action_type": "remediate_all_in_sg", "sg_id": "sg-f3a2"}
+- {"action_type": "enable_rds_enc", "rds_id": "db-b4c1"}
+- {"action_type": "update_iam", "policy_id": "p-9d2a", "new_document": "{...}"}
+- {"action_type": "submit", "findings": ["Remediated multiple SGs", "Encrypted RDS/EBS"]}
 
-Always focus on the current task and progress towards 100% compliance.
+Note: Use 'remediate_all_in_sg' to clean a security group efficiently.
 """
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -82,21 +88,30 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 async def main() -> None:
     if not API_KEY:
-        print("[ERROR] HF_TOKEN environment variable is not set.")
+        print("[ERROR] API_KEY/HF_TOKEN environment variable is not set.")
         return
-
-    openai_client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     
-    # Use 127.0.0.1 explicitly to avoid IPv6 issues on some systems
-    env_url = os.getenv("ENV_URL", "http://127.0.0.1:7860")
-    env = AsyncCloudClient(base_url=env_url)
+    if not API_BASE_URL:
+        # Fallback only for local testing if not in validator
+        print("[DEBUG] No API_BASE_URL provided. Falling back to default.")
+        base_url = "https://router.huggingface.co/v1"
+    else:
+        base_url = API_BASE_URL
 
+    if not MODEL_NAME:
+        model_name = "Qwen/Qwen2.5-72B-Instruct"
+    else:
+        model_name = MODEL_NAME
+
+    openai_client = OpenAI(base_url=base_url, api_key=API_KEY)
+    
+async def run_episode(openai_client: OpenAI, env: AsyncCloudClient, task_name: str, model_name: str) -> None:
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
     success = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    log_start(task=task_name, env=BENCHMARK, model=model_name)
 
     try:
         result = await env.reset()
@@ -106,14 +121,19 @@ async def main() -> None:
                 break
             
             obs_dict = result.observation.model_dump()
+            # Remove reward/done/info from prompt context to keep LLM focused on state
+            if "reward" in obs_dict: del obs_dict["reward"]
+            if "done" in obs_dict: del obs_dict["done"]
+            if "info" in obs_dict: del obs_dict["info"]
+            
             obs_json = json.dumps(obs_dict)
             
             try:
                 completion = openai_client.chat.completions.create(
-                    model=MODEL_NAME,
+                    model=model_name,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Observation: {obs_json}\nDecide your next action."},
+                        {"role": "user", "content": f"Task: {task_name}\nObservation: {obs_json}\nDecide your next action."},
                     ],
                     temperature=TEMPERATURE,
                     max_tokens=MAX_TOKENS,
@@ -121,13 +141,11 @@ async def main() -> None:
                 )
                 action_content = completion.choices[0].message.content
                 action_data = json.loads(action_content)
-                # Parse flat action
                 action_obj = CloudAction(**action_data)
                 action_str = json.dumps(action_data)
             except Exception as e:
-                # Basic fallback to audit if LLM fails
                 action_obj = CloudAction(action_type="audit")
-                action_str = "audit-fallback"
+                action_str = '{"action_type": "audit"}'
                 print(f"[DEBUG] Action generation error: {e}")
 
             result = await env.step(action_obj)
@@ -143,14 +161,40 @@ async def main() -> None:
                 break
         
         score = sum(rewards)
-        score = min(max(score, 0.0), 1.0)
+        score = min(max(score, 0.0), 0.999) # Enforce strict (0, 1) range
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[DEBUG] Runtime error: {e}")
+        print(f"[DEBUG] Runtime error during episode: {e}")
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
-        await env.close()
+
+async def main() -> None:
+    if not API_KEY:
+        print("[ERROR] API_KEY/HF_TOKEN environment variable is not set.")
+        return
+    
+    if not API_BASE_URL:
+        # Fallback only for local testing
+        base_url = "https://router.huggingface.co/v1"
+    else:
+        base_url = API_BASE_URL
+
+    if not MODEL_NAME:
+        model_name = "Qwen/Qwen2.5-72B-Instruct"
+    else:
+        model_name = MODEL_NAME
+
+    openai_client = OpenAI(base_url=base_url, api_key=API_KEY)
+    env_url = os.getenv("ENV_URL", "http://127.0.0.1:7860")
+    env = AsyncCloudClient(base_url=env_url)
+
+    # Multi-task evaluation loop
+    tasks = ["easy_audit", "medium_remediation", "hard_iam_refactor"]
+    for task in tasks:
+        await run_episode(openai_client, env, task, model_name)
+    
+    await env.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
