@@ -10,6 +10,14 @@ app = create_fastapi_app(
     observation_cls=CloudObservation
 )
 
+@app.post("/reset")
+async def reset_with_task(task_name: str = "easy_audit"):
+    # Access the shared environment instance created by create_fastapi_app
+    # Note: create_fastapi_app typically stores the env instance in app.state.env
+    env = app.state.env
+    obs = env.reset(task_name=task_name)
+    return obs.model_dump()
+
 def main():
     import uvicorn
     print("[DEBUG] Starting Unified CloudAudit Server", flush=True)

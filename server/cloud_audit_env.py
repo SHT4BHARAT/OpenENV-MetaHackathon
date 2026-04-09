@@ -15,12 +15,21 @@ class CloudAuditEnv(Environment):
         self.max_steps = 30
         self.reset()
 
-    def reset(self) -> CloudObservation:
+    def reset(self, task_name: str = "easy_audit") -> CloudObservation:
+        self.task_name = task_name
         self.step_count = 0
         self.remediated_count = 0
         self.health_score = 1.0
         self.cumulative_reward = 0.0
         self.done = False
+        
+        # Task Descriptions
+        descriptions = {
+            "easy_audit": "Find and fix all Security Group rules that allow SSH/RDP access from the public internet (0.0.0.0/0).",
+            "medium_remediation": "Ensure all S3 buckets, RDS instances, and EBS volumes are encrypted at rest.",
+            "hard_iam_refactor": "Refactor IAM policies to remove wildcards ('*') while preserving required service permissions."
+        }
+        self.task_description = descriptions.get(task_name, "Perform a comprehensive cloud security audit.")
         
         # Procedural Generation Configuration
         self.sgs: List[SecurityGroup] = []
@@ -191,7 +200,11 @@ class CloudAuditEnv(Environment):
 
         elif at == "submit":
             self.done = True
-            message = "Audit report submitted."
+            if self.remediated_count >= self.initial_vulns and self.health_score > 0.5:
+                reward = 0.1 # Terminal bonus
+                message = "Audit report submitted. Perfect remediation achieved!"
+            else:
+                message = "Audit report submitted."
 
         # Update Cumulative Tracking
         self.cumulative_reward += reward
@@ -235,12 +248,24 @@ class CloudAuditEnv(Environment):
         )
 
     def _get_observation(self, message: str, reward: float = 0.0, done: bool = False) -> CloudObservation:
+        # Task-specific resource filtering (Optional based on user recommendation)
+        show_sgs = self.sgs
+        show_buckets = self.buckets
+        show_rds = self.rds
+        show_ebs = self.ebs
+        show_policies = self.policies
+        
+        # If task is focused, we still show other resources but manifest tells the agent where the vulns are
+        manifest = self.vulnerability_manifest.copy()
+        
         return CloudObservation(
-            security_groups=self.sgs,
-            s3_buckets=self.buckets,
-            rds_instances=self.rds,
-            ebs_volumes=self.ebs,
-            iam_policies=self.policies,
+            security_groups=show_sgs,
+            s3_buckets=show_buckets,
+            rds_instances=show_rds,
+            ebs_volumes=show_ebs,
+            iam_policies=show_policies,
+            task_description=self.task_description,
+            vulnerability_manifest=manifest,
             message=message,
             reward=reward,
             health_score=self.health_score,

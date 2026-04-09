@@ -42,6 +42,34 @@ To guarantee stable JSON validation across different Pydantic parsing engines, t
 
 ---
 
+## 🚀 Framework Standard (Recommended)
+
+As of the latest update, `openenv-cloudaudit` is a fully compliant OpenEnv package. You can interact with it using the standard async client:
+
+```python
+from cloudaudit_env import CloudAuditClient, CloudAction
+
+client = CloudAuditClient(base_url="http://localhost:7860")
+
+# 1. Reset for a specific task
+obs = await client.reset(task_name="medium_remediation")
+print(f"Goal: {obs.task_description}")
+
+# 2. Perform actions
+action = CloudAction(action_type="enable_s3_enc", bucket_name="bucket-uuid")
+obs = await client.step(action)
+print(f"Progress: {obs.message}")
+```
+
+## 📊 Observation & Scoring
+The environment now includes an enriched observation schema for advanced agent reasoning:
+- **`task_description`**: Clearly state the agent's goal for the current session.
+- **`vulnerability_manifest`**: Exposes the target vulnerability counts (e.g. `{"sg_vulns": 3}`).
+- **`health_score`**: Monitors deployment safety (dropping below 0.5 penalizes the agent).
+- **Terminal Bonus**: A trajectory-level reward (+0.1) granted on successful `submit` after full remediation.
+
+---
+
 ## 💻 Quick Start & Evaluation
 
 ### 1. Run the Environment Server Locally

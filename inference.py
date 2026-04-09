@@ -114,26 +114,37 @@ async def run_episode(openai_client: OpenAI, env: AsyncCloudClient, task_name: s
     log_start(task=task_name, env=BENCHMARK, model=model_name)
 
     try:
-        result = await env.reset()
+        # 1. Reset Environment with Task Context
+        response = await env.client.post(f"{env.base_url}/reset", params={"task_name": task_name})
+        response.raise_for_status()
+        result = StepResult(**response.json())
         
         for step in range(1, MAX_STEPS + 1):
             if result.done:
                 break
             
             obs_dict = result.observation.model_dump()
-            # Remove reward/done/info from prompt context to keep LLM focused on state
-            if "reward" in obs_dict: del obs_dict["reward"]
-            if "done" in obs_dict: del obs_dict["done"]
-            if "info" in obs_dict: del obs_dict["info"]
+            # Log the goal on the first step
+            if step == 1:
+                print(f"[TASK] {result.observation.task_description}")
+            
+            # Enrich prompt with manifest for better reasoning
+            manifest = result.observation.vulnerability_manifest
+            manifest_str = json.dumps({k: v for k, v in manifest.items() if v > 0})
+            
+            # Remove high-level metadata from LLM context to avoid confusion
+            for key in ["reward", "done", "info", "message", "health_score"]:
+                if key in obs_dict: del obs_dict[key]
             
             obs_json = json.dumps(obs_dict)
             
             try:
+                prompt = f"Goal: {result.observation.task_description}\nPending Vulnerabilities: {manifest_str}\nCurrent Status: {result.observation.message}\nObservation: {obs_json}\nDecide your next action."
                 completion = openai_client.chat.completions.create(
                     model=model_name,
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"Task: {task_name}\nObservation: {obs_json}\nDecide your next action."},
+                        {"role": "user", "content": prompt},
                     ],
                     temperature=TEMPERATURE,
                     max_tokens=MAX_TOKENS,

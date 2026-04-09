@@ -13,7 +13,9 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
-    "openai"
+    "openai",
+    "pytest",
+    "httpx"
 ]
 
 [project.scripts]

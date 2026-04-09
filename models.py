@@ -36,6 +36,8 @@ class CloudObservation(BaseModel):
     rds_instances: List[RDSInstance] = []
     ebs_volumes: List[EBSVolume] = []
     iam_policies: List[IAMPolicy]
+    task_description: str = "Perform a cloud security audit and remediate vulnerabilities."
+    vulnerability_manifest: Dict[str, int] = {} # e.g. {"sg_vulns": 4, "s3_vulns": 3}
     message: str = "Cloud resources loaded."
     reward: float = 0.0
     health_score: float = 1.0 # 0.0 to 1.0 (AVAILABILITY)
