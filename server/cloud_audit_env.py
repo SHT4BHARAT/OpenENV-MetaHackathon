@@ -197,7 +197,7 @@ class CloudAuditEnv(Environment):
             self.health_score = 0.0
             self.done = True
             reward = 0.0
-            message = "CRITIAL FAILURE: Production environment is offline due to misconfiguration. Mission failed."
+            message = "CRITICAL FAILURE: Production environment is offline due to misconfiguration. Mission failed."
         
         final_reward = reward
         if self.health_score < 0.5:
