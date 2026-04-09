@@ -1,5 +1,9 @@
-out.txt
-push_out.txt
-image.png
+*.txt
+*.pdf
+*.docx
+*.doc
+*.md
+!README.md
+*.png
 *.log
 __pycache__/
