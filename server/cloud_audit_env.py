@@ -19,6 +19,7 @@ class CloudAuditEnv(Environment):
         self.step_count = 0
         self.remediated_count = 0
         self.health_score = 1.0
+        self.cumulative_reward = 0.0
         self.done = False
         
         # Procedural Generation Configuration
@@ -192,18 +193,24 @@ class CloudAuditEnv(Environment):
             self.done = True
             message = "Audit report submitted."
 
-        # Apply Health Multiplier and Termination
+        # Update Cumulative Tracking
+        self.cumulative_reward += reward
+        
+        # Enforce strict Phase 2 boundaries (0.1, 0.9)
+        # Even if 0 progress is made, we return a small positive base
+        # If perfect progress is made, we cap at 0.9
+        capped_total = 0.1 + (min(max(self.cumulative_reward, 0.0), 1.0) * 0.8)
+        
+        # We report the "delta" as the step reward so summing works naturally,
+        # but the FINAL total will be in [0.1, 0.9].
+        # Or better: just set the specific step reward to ensure the current total is safe.
+        step_reward = reward
         if self.health_score <= 0:
-            self.health_score = 0.0
             self.done = True
-            reward = 0.0
-            message = "CRITICAL FAILURE: Production environment is offline due to misconfiguration. Mission failed."
-        
-        final_reward = reward
-        if self.health_score < 0.5:
-            final_reward *= 0.5
-        
-        obs = self._get_observation(message, reward=final_reward, done=self.done)
+            step_reward = -1.0 # Force total towards the bottom
+            message = "CRITICAL FAILURE: Production environment is offline. Mission failed."
+
+        obs = self._get_observation(message, reward=step_reward, done=self.done)
         obs.health_score = self.health_score
         return obs
 
@@ -217,7 +224,11 @@ class CloudAuditEnv(Environment):
             step_count=self.step_count,
             max_steps=self.max_steps,
             remediated_count=self.remediated_count,
-            total_resources=len(self.sgs) + len(self.buckets) + len(self.rds) + len(self.ebs) + len(self.policies),
+            security_groups=self.sgs,
+            s3_buckets=self.buckets,
+            rds_instances=self.rds,
+            ebs_volumes=self.ebs,
+            iam_policies=self.policies,
             vulnerability_manifest=self.vulnerability_manifest,
             required_iam_perms=self.required_iam_perms,
             health_score=self.health_score

@@ -160,9 +160,10 @@ async def run_episode(openai_client: OpenAI, env: AsyncCloudClient, task_name: s
             if done:
                 break
         
-        score = sum(rewards)
-        score = min(max(score, 0.0), 0.999) # Enforce strict (0, 1) range
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        total_reward = sum(rewards)
+        # Normalize to strictly (0.15, 0.85) to avoid any Phase 2 range failures
+        score = 0.15 + (max(0.0, min(1.0, total_reward)) * 0.7)
+        success = score >= (SUCCESS_SCORE_THRESHOLD + 0.15)
 
     except Exception as e:
         print(f"[DEBUG] Runtime error during episode: {e}")

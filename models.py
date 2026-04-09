@@ -75,7 +75,11 @@ class CloudState(BaseModel):
     step_count: int
     max_steps: int
     remediated_count: int
-    total_resources: int
-    vulnerability_manifest: Dict[str, int] = {} # e.g. {"sg_vulns": 4, "s3_vulns": 3}
-    required_iam_perms: Dict[str, str] = {} # policy_id -> required action
+    security_groups: List[SecurityGroup] = []
+    s3_buckets: List[S3Bucket] = []
+    rds_instances: List[RDSInstance] = []
+    ebs_volumes: List[EBSVolume] = []
+    iam_policies: List[IAMPolicy] = []
+    vulnerability_manifest: Dict[str, int] = {}
+    required_iam_perms: Dict[str, str] = {}
     health_score: float = 1.0
