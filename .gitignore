@@ -1,9 +1,19 @@
-*.txt
+# Logs and diagnostic outputs
+out.txt
+push_out.txt
+image.png
+*.log
+
+# Python / Environment
+__pycache__/
+.env
+.venv/
+uv.lock
+
+# Documentation and Research (Ignore all except README.md)
+*.md
 *.pdf
 *.docx
 *.doc
-*.md
+*.txt
 !README.md
-*.png
-*.log
-__pycache__/
